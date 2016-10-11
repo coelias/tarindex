@@ -3,11 +3,19 @@ tarindex, UNIX tar file indexer for python
 
 This tool is aimed to operate with high density Tar files (millions of files within the tar file).
 
+NOTE: tarindex does not work with gzipped/bzipped tar files.
+
 tarindex parses the whole tar file indexing (only files with size > 0) and extends the Tar file itself
-with an extra file containing the index gzipped, so it can be loaded later on much faster.
+with an extra file containing the gzipped index, so it can be loaded later on much faster.
 
 The index file added into tar file has the following format: .tarindex-NNNN, as it is possible
 to have several indexes if the tar file is extended in the future.
+
+Installation:
+
+```bash
+$ pip install tarindex
+```
 
 Example of usage:
 
