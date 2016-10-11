@@ -37,7 +37,7 @@ def updateTar(tarpath,fname,data):
 		bl=a.read(512)
 		if bl[156] in '\x0001234567xg' and bl[257:262]=='ustar':
 			sz=int(bl[124:135],8)
-			sz=sz+512-(sz%512)
+			if sz%512: sz=sz+512-(sz%512)
 			updatepos=(endb-sz/512-1)*512
 			break
 		endb+=1
@@ -69,10 +69,10 @@ def updateTar(tarpath,fname,data):
 def indexFromTar(f):
 	sys.stderr.write('Indexing tar file... ')
 	filesdone=0
-	flen=os.stat(sys.argv[1]).st_size
+	flen=os.stat(f).st_size
 	assert not flen%512
 	nblocks=flen/512
-	a=open(sys.argv[1])
+	a=open(f)
 	
 	block=0
 	xfname=None
@@ -93,7 +93,7 @@ def indexFromTar(f):
 		try:
 			sz=int(data[124:136].strip('\0'),8)
 		except:
-		#	print 'error',hex(block*512),repr(data[124:136]),name
+#			print 'error',hex(block*512),repr(data[124:136]),name
 			block+=1
 			if not xfound: xfname=None
 			continue
@@ -101,7 +101,8 @@ def indexFromTar(f):
 		block+=1
 	
 		if sz:
-			bltoread=(512-(sz%512)+sz)/512
+			if sz%512: bltoread=(512-(sz%512)+sz)/512
+			else: bltoread=sz/512
 			if tf=='x':
 				xfound=True
 				xfname='='.join(a.read(sz).split('\n')[0].split('=')[1:])
@@ -366,5 +367,3 @@ class TarFileIdx:
 if  __name__=='__main__':
 	a=TarFileIdx(sys.argv[1])
 	print len(a),'files indexed'
-	for i in a.iterLocalFiles(directory='/tmp',regex='\.py$'):
-		print i
