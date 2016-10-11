@@ -88,6 +88,7 @@ def indexFromTar(f):
 		lname=data[157:257]
 		pf=data[345:354+155]
 		tf=data[156]
+
 	
 		try:
 			sz=int(data[124:136].strip('\0'),8)
@@ -97,8 +98,6 @@ def indexFromTar(f):
 			if not xfound: xfname=None
 			continue
 	
-		#print [name,lname,pf,sz,tf]
-	
 		block+=1
 	
 		if sz:
@@ -106,7 +105,11 @@ def indexFromTar(f):
 			if tf=='x':
 				xfound=True
 				xfname='='.join(a.read(sz).split('\n')[0].split('=')[1:])
-			if tf=='0':
+			elif tf=='L':
+				xfound=True
+				xfname=a.read(sz).strip('\x00')
+
+			elif tf=='0':
 				if xfname: index.append([xfname,a.tell(),sz])
 				else: index.append([name,a.tell(),sz])
 				filesdone+=1
@@ -246,7 +249,7 @@ class TarFileIdx:
 
 	def getFile(self,ti):
 		if type(ti)==str:
-			f=self.index[ti]
+			ti=self.index[ti]
 
 		return self.tarfile.extractfile(ti)
 
@@ -340,6 +343,24 @@ class TarFileIdx:
 
 
 		sys.stderr.write('DONE!\n')
+
+	def deleteIndex(self):
+		a=open(self.tarfilePath,'a+')
+		bl=1
+		
+		while True:
+			a.seek(-bl*512,2)
+			d=a.read(512)
+			if d[257:262]=='ustar':
+				break
+			bl+=1
+		
+		if d.startswith('.tarFilIdx-'):
+			pos=-bl*512
+			sz=os.fstat(a.fileno()).st_size
+			a.truncate(sz-pos)
+			a.write('\x00'*1024)
+		a.close()
 
 
 if  __name__=='__main__':

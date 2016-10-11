@@ -55,6 +55,10 @@ Indexing tar file... DONE!
 >>> for i in tf.iterLocalFiles(directory='/dev/shm'):
 >>>    file_contents=open(i).read()
 # Files get deleted automatically (tempfile)
+
+# If you want to remove the index from the tar file...
+>>> tf.deleteIndex()
+
 ```
 
 ```bash
