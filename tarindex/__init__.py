@@ -24,7 +24,51 @@ import struct
 import sys
 import tarfile
 
+def updateTar(tarpath,fname,data):
+	fname+='\x00'*(100-len(fname))
+	datasize=oct(len(data))
+	datasize='0'*(11-len(datasize))+datasize
+	
+	a=open(tarpath)
+	endb=1
+	
+	while True:
+		a.seek(-endb*512,2)
+		bl=a.read(512)
+		if bl[156] in '\x0001234567xg' and bl[257:262]=='ustar':
+			sz=int(bl[124:135],8)
+			sz=sz+512-(sz%512)
+			updatepos=(endb-sz/512-1)*512
+			break
+		endb+=1
+	
+	a.close()
+	
+	
+	
+	part1='0000644\x000000000\x000000000\x00'+datasize+'\x0000000000000\x00'
+	
+	part2='0\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00ustar  \x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x000000000\x000000000\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
+	
+	cksum=oct(sum(struct.unpack('B'*504,part1+fname+part2))+32*8)+'\x00 '
+	
+	header=fname+part1+cksum+part2
+	
+	a=open(tarpath,'a+')
+	a.seek(-updatepos,2)
+	if set(a.read())!=set('\00'):
+		raise Exception
+	a.truncate(os.fstat(a.fileno()).st_size-updatepos)
+	a.write(header)
+	a.write(data)
+	a.write('\x00'*(512-(len(data)%512)))
+	a.write('\x00'*1024)
+	a.close()
+
+
 def indexFromTar(f):
+	sys.stderr.write('Indexing tar file... ')
+	filesdone=0
 	flen=os.stat(sys.argv[1]).st_size
 	assert not flen%512
 	nblocks=flen/512
@@ -65,6 +109,9 @@ def indexFromTar(f):
 			if tf=='0':
 				if xfname: index.append([xfname,a.tell(),sz])
 				else: index.append([name,a.tell(),sz])
+				filesdone+=1
+				if not filesdone%1000:
+					sys.stderr.write('\rIndexing tar file... {0:.1f}% done'.format(float(a.tell())/flen*100))
 				
 			block+=bltoread
 		
@@ -168,7 +215,7 @@ class TarFileIdx:
 
 	def __findIndexPos(self):
 		fp=open(self.tarfilePath)
-		fp.seek(-32768,2)
+		fp.seek(-4096,2)
 		info=fp.read()
 		fp.close()
 
@@ -259,7 +306,6 @@ class TarFileIdx:
 		sys.stdout.write('Done!\n')
 
 	def __createIndex(self):
-		sys.stderr.write('Indexing tar file... ')
 
 		d=sorted(indexFromTar(self.tarfilePath))
 
@@ -283,15 +329,10 @@ class TarFileIdx:
 		gzinfo=gzbuff.read()
 
 		idx=TarFileIdx.MAGICNUMBER1+gzinfo+safe_dump(len(gzinfo))+TarFileIdx.MAGICNUMBER2
-		ti=tarfile.TarInfo()
-		ti.size=len(idx)
-		ti.name=".tarFilIdx-{0}".format(random.randint(1000,9999))
-		idx=StringIO(idx)
+		fname=".tarFilIdx-{0}".format(random.randint(1000,9999))
 
 		try:
-			tf=tarfile.TarFile(self.tarfilePath,'a')
-			tf.addfile(ti,idx)
-			tf.close()
+			updateTar(self.tarfilePath,fname,idx)
 		except:
 			sys.stderr.write('WARNING: Could not write the index into the tar file!\n')
 

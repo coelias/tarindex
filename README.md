@@ -56,3 +56,32 @@ Indexing tar file... DONE!
 >>>    file_contents=open(i).read()
 # Files get deleted automatically (tempfile)
 ```
+
+```bash
+
+# Performance example
+
+$ cat /tmp/a.py
+from tarindex import TarFileIdx
+import sys
+TarFileIdx(sys.argv[1])
+
+$ ls -lh reads.tar
+-rw-rw-r-- 1 compass 2041577985 **230G** Oct 11 22:19 reads.tar
+
+$ time python /tmp/a.py reads.tar
+Indexing tar file... 100.0% done
+DONE!
+
+real	6m23.469s
+user	0m19.451s
+sys	1m20.264s
+
+
+$ time python /tmp/a.py reads.tar
+Loading index 4.9Mb gziped... Done!
+
+real	0m0.552s
+user	0m0.311s
+sys	0m0.172s
+```
