@@ -159,14 +159,14 @@ class TarFileIdx:
 		self.index=None
 		self.tarfilePath=tarfilepath
 
-		if self.findIndexPos()==-1:
-				self.createIndex()
+		if self.__findIndexPos()==-1:
+				self.__createIndex()
 		else:
-				self.loadIndex()
+				self.__loadIndex()
 
 		self.tarfile=tarfile.TarFile(tarfilepath,'r')
 
-	def findIndexPos(self):
+	def __findIndexPos(self):
 		fp=open(self.tarfilePath)
 		fp.seek(-32768,2)
 		info=fp.read()
@@ -180,8 +180,10 @@ class TarFileIdx:
 
 		return safe_load(info[lastmn-8:lastmn])+len(TarFileIdx.MAGICNUMBER1)+(len(info)-lastmn)+8
 
-	def iterLocalFiles(self,directory="./",delete=True):
+	def iterLocalFiles(self,directory="./",delete=True,regex=None):
+		if regex: regex=re.compile(regex)
 		for ti in self.index:
+			if regex and not regex.findall(ti.name): continue
 			dest=self.getLocalFile(ti,directory=directory,createparents=False)
 			yield dest
 			if delete: os.unlink(dest)
@@ -189,8 +191,10 @@ class TarFileIdx:
 	def __len__(self):
 		return len(self.index)
 
-	def iterFiles(self):
+	def iterFiles(self,regex=None):
+		if regex: regex=re.compile(regex)
 		for ti in self.index:
+			if regex and not regex.findall(ti.name): continue
 			yield self.getFile(ti)
 
 	def getFile(self,ti):
@@ -221,22 +225,22 @@ class TarFileIdx:
 
 		return dest
 
-	def getmembers(self):
+	def getMembers(self):
 		for i in self.index:
 			yield i
 
-	def getnames(self):
+	def getNames(self):
 		return (i.name for i in self.index)
 
         def __iter__(self):
             return self.index.__iter__()
 
-	def getmember(self,name):
+	def getMember(self,name):
 			return self.index[name]
-	__getitem__=getmember
+	__getitem__=getMember
 
-	def loadIndex(self):
-		idxpos=self.findIndexPos()
+	def __loadIndex(self):
+		idxpos=self.__findIndexPos()
 		fp=open(self.tarfilePath)
 		fp.seek(-idxpos,2)
 		data=fp.read()
@@ -254,7 +258,7 @@ class TarFileIdx:
 
 		sys.stdout.write('Done!\n')
 
-	def createIndex(self):
+	def __createIndex(self):
 		sys.stderr.write('Indexing tar file... ')
 
 		d=sorted(indexFromTar(self.tarfilePath))
@@ -300,6 +304,5 @@ class TarFileIdx:
 if  __name__=='__main__':
 	a=TarFileIdx(sys.argv[1])
 	print len(a),'files indexed'
-
-
-        print a.getFile('WEBSITE/_site/404.html').read()
+	for i in a.iterLocalFiles(directory='/tmp',regex='\.py$'):
+		print i
