@@ -357,7 +357,7 @@ class TarFileIdx:
 			bl+=1
 		
 		if d.startswith('.tarFilIdx-'):
-			pos=-bl*512
+			pos=bl*512
 			sz=os.fstat(a.fileno()).st_size
 			a.truncate(sz-pos)
 			a.write('\x00'*1024)
