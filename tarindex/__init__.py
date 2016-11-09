@@ -13,6 +13,16 @@
 
 ##    Author: Carlos del Ojo Elias (deepbit@gmail.com)
 
+REGTYPE= '0'         #   /* regular file */
+AREGTYPE='\0'       #   /* regular file */
+LNKTYPE= '1'         #   /* link */
+SYMTYPE= '2'         #   /* reserved */
+CHRTYPE= '3'         #   /* character special */
+BLKTYPE= '4'         #   /* block special */
+DIRTYPE= '5'         #   /* directory */
+FIFOTYPE='6'        #   /* FIFO special */
+CONTTYPE='7'        #   /* reserved */
+
 
 from StringIO import StringIO
 import gzip
@@ -22,48 +32,140 @@ import random
 import re
 import struct
 import sys
-import tarfile
+import array
+import time
 
-def updateTar(tarpath,fname,data):
-	fname+='\x00'*(100-len(fname))
-	datasize=oct(len(data))
-	datasize='0'*(11-len(datasize))+datasize
+import threading 
+
+TARACCESS=threading.RLock()
+
+def allDirs(p):
+	oldp=None
+	while p!=oldp:
+		oldp=p
+		p=os.path.split(p)[0]
+		yield p
+
+class SortedList:
+	def __init__(self,data=[]):
+		self.lst=data
+
+	def sort(self):
+		self.lst.sort()
+
+	def __len__(self):
+		return len(self.lst)
+
+	def __getitem__(self,k):
+		return self.lst[k]
+
+	def append(self,el):
+		ini=0
+		end=len(self.lst)
+
+		if not end:
+			self.lst.append(el)
+			return 0
+
+		while ini+1<end:
+			mid=(ini+end)/2
+			midel=self.lst[mid]
+			if el<=midel: end=mid
+			else: ini=mid
+
+		if el<self.lst[ini]:
+			self.lst.insert(ini,el)
+			return ini
+		else:
+			self.lst.insert(ini+1,el)
+			return ini+1
+
+	def contains_substring(self,el):
+		ini=0
+		end=len(self.lst)
+
+		while ini+1<end:
+			mid=(ini+end)/2
+			midel=self.lst[mid]
+			if el<midel: end=mid
+			elif el>midel: ini=mid
+			else: return True
+
+		if el in self.lst[ini]: return True
+		if el in self.lst[end]: return True
+
+		return False
+
+	def __contains__(self,el):
+		ini=0
+		end=len(self.lst)
+
+		while ini+1<end:
+			mid=(ini+end)/2
+			midel=self.lst[mid]
+			if el<midel: end=mid
+			elif el>midel: ini=mid
+			else: return True
+
+		if el==self.lst[ini]: return True
+		if el==self.lst[end]: return True
+
+		return False
 	
-	a=open(tarpath)
-	endb=1
+	def __iter__(self):
+		return self.lst.__iter__()
+
+class TarFile:
+	def __init__(self,fd,pos,size,name=None):
+		self.fd=fd
+		self.pos=pos
+		self.size=size
+		self.curpos=0
+		self.name=name
+
+	def read(self,sz=0):
+		if sz==0:
+			TARACCESS.acquire()
+			self.fd.seek(self.pos+self.curpos)
+			res=self.fd.read(self.size-self.curpos)
+			self.curpos+=len(res)
+			TARACCESS.release()
+		else:
+			TARACCESS.acquire()
+			self.fd.seek(self.pos+self.curpos)
+			res=self.fd.read(min(self.size-self.curpos,sz))
+			self.curpos+=len(res)
+			TARACCESS.release()
+		return res
 	
-	while True:
-		a.seek(-endb*512,2)
-		bl=a.read(512)
-		if bl[156] in '\x0001234567xg' and bl[257:262]=='ustar':
-			sz=int(bl[124:135],8)
-			if sz%512: sz=sz+512-(sz%512)
-			updatepos=(endb-sz/512-1)*512
-			break
-		endb+=1
-	
-	a.close()
-	
-	
-	
-	part1='0000644\x000000000\x000000000\x00'+datasize+'\x0000000000000\x00'
-	
-	part2='0\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00ustar  \x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x000000000\x000000000\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
-	
-	cksum=oct(sum(struct.unpack('B'*504,part1+fname+part2))+32*8)+'\x00 '
-	
-	header=fname+part1+cksum+part2
-	
-	a=open(tarpath,'a+')
-	a.seek(-updatepos,2)
-	if set(a.read())!=set('\00'):
-		raise Exception
-	a.truncate(os.fstat(a.fileno()).st_size-updatepos)
-	a.write(header)
-	a.write(data)
-	a.write('\x00'*(512-(len(data)%512)))
-	a.write('\x00'*1024)
-	a.close()
+	def __iter__(self):
+		data=""
+		pos=0
+		while True:
+			npos=data.find('\n',pos)
+			if npos==-1:
+				if self.curpos>=self.size: break
+				data=data[pos:]
+				pos=0
+				data+=self.read(131072)
+			else:
+				yield data[pos:npos+1]
+				pos=npos+1
+
+		data=data[pos:]
+		if data:
+			yield data
+
+	def seek(self,pos,whence):
+		if not whence:
+			self.curpos=min(pos,self.size)
+		if whence==1:
+			self.curpos=max(0,min(self.curpos+pos,self.size))
+		elif whence==2:
+			self.curpos=min(self.size+pos,self.size)
+
+	def tell(self):
+		return self.curpos
 
 
 def indexFromTar(f):
@@ -78,6 +180,7 @@ def indexFromTar(f):
 	xfname=None
 	
 	index=[]
+	dirs=set()
 	
 	while block<nblocks:
 		xfound=False
@@ -85,9 +188,12 @@ def indexFromTar(f):
 		data=a.read(512)
 	
 		name=data[:100].strip('\x00')
-		lname=data[157:257]
-		pf=data[345:354+155]
+		lname=data[157:257].strip('\x00')
+		prefix=data[345:500].strip('\x00')
 		tf=data[156]
+
+		if prefix:
+			name=os.path.join(prefix,name)
 
 	
 		try:
@@ -103,27 +209,38 @@ def indexFromTar(f):
 		if sz:
 			if sz%512: bltoread=(512-(sz%512)+sz)/512
 			else: bltoread=sz/512
-			if tf=='x':
+			if tf=='x' or name.startswith('./PaxHeader'):
 				xfound=True
 				xfname='='.join(a.read(sz).split('\n')[0].split('=')[1:])
+				xfname=xfname.strip('\x00')
 			elif tf=='L':
 				xfound=True
 				xfname=a.read(sz).strip('\x00')
-
 			elif tf=='0':
 				if xfname: index.append([xfname,a.tell(),sz])
 				else: index.append([name,a.tell(),sz])
 				filesdone+=1
 				if not filesdone%1000:
 					sys.stderr.write('\rIndexing tar file... {0:.1f}% done'.format(float(a.tell())/flen*100))
-				
+
 			block+=bltoread
+
+		elif tf=='5':
+			if xfname: dirs.add(xfname.rstrip('/').rstrip('\\'))
+			else: dirs.add(name.rstrip('/').rstrip('\\'))
+				
 		
 		if not xfound: xfname=None
 
 	a.close()
-	
-	return index
+
+	for i,_,_ in index:
+		for i in allDirs(i):
+			dirs.discard(i)
+
+	dirs=sorted(dirs)
+	index.sort()
+	return index,dirs
 
 def safe_dump(n):
 	data=""
@@ -142,37 +259,48 @@ def safe_load(s):
 	return n
 
 class Index:
-		def __init__(self,data=None,positions=None,sizes=None,names=None):
+		def __init__(self,data=None,positions=None,sizes=None,names=None,dirs=None):
 			if data:
 					self.totitems=safe_load(data[:8])
 		
 					self.positions=struct.unpack('Q'*self.totitems,data[8:8+self.totitems*8])
 					self.sizes=struct.unpack('Q'*self.totitems,data[8+self.totitems*8:8+self.totitems*16])
-					self.namepos=struct.unpack('Q'*self.totitems,data[8+self.totitems*16:8+self.totitems*24])
 		
-					self.names=data[8+self.totitems*24:]+"\n"
+					self.names=data[8+self.totitems*16:].split("\n")
+					self.names,self.dirs=SortedList(self.names[:len(self.sizes)]),SortedList(self.names[len(self.sizes):])
 			else:
 					self.totitems=len(names)
 					self.positions=positions
 					self.sizes=sizes
-					self.namepos=[]
-					self.names=names
-
-					np=0
-					for i in self.names:
-						self.namepos.append(np)
-						np+=len(i)+1
-
-					self.names='\n'.join(self.names)+'\n'
+					self.names=SortedList(names)
+					if not dirs: self.dirs=SortedList()
+					else: self.dirs=SortedList(dirs)
 
 		def __len__(self):
 			return self.totitems
 
-		def getName(self,p):
-			ini=self.namepos[p]
-			end=self.names.find('\n',ini)
+		def splitPath(self,path):
+			objs=[]
+			prev=None
+			while path!=prev:
+				prev=path
+				path,obj=os.path.split(path)
+				if obj: objs.insert(0,obj)
+			objs.insert(0,'/')
+			return objs
 
-			return self.names[ini:end]
+		def getName(self,p):
+			return self.names[p]
+
+		def addFile(self,name,pos,size):
+			assert name not in self.names
+			p=self.names.append(name)
+			self.positions.insert(p,pos)
+			self.sizes.insert(p,size)
+			self.totitems+=1
+
+		def addDir(self,name):
+			if name not in self.dirs: self.dirs.append(name)
 
 		def __getitem__(self,name):
 			ini=0
@@ -185,43 +313,73 @@ class Index:
 				elif name>midname:
 					ini=mid
 				else:
-					ti=tarfile.TarInfo()
-					ti.name=name
-					ti.size=self.sizes[mid]
-					ti.offset_data=self.positions[mid]
-					return ti
+					return [name,self.sizes[mid],self.positions[mid]]
 
-			raise Exception
+			raise Exception('File not found: {}'.format(name))
 
 		def __iter__(self):
 			for i in xrange(self.totitems):
-				ti=tarfile.TarInfo()
-				ti.name=self.getName(i)
-				ti.size=self.sizes[i]
-				ti.offset_data=self.positions[i]
-				yield ti
+				yield [self.getName(i),self.sizes[i],self.positions[i]]
 
 
 class TarFileIdx:
 	MAGICNUMBER1='\x47\x13\x38\x03\x11\x72\x72'[::-1]
 	MAGICNUMBER2='\x47\x13\x38\x03\x11\x72\x72'*3
 
-	def __init__(self,tarfilepath):
+	def __init__(self,mode='wo',tarfilepath=None):
+		'''Opens a tar file
+		:param tarfilepath: path to the tar file to be opened
+		:param mode: opening mode [(r)ead,(w)rite,std(i)n,std(o)ut]
+		'''
+		new=False
+		if not os.path.isfile(tarfilepath):
+			new=True
+
+		MODES={'r':'Reads from a file',
+		       'w':'Writes to a file, allows reading',
+			   'wo':'Writes into stdout [and a file, if provided], doesn\'t allow reading if there is not file'}
+
+		if mode not in MODES:
+			raise Exception('Mode not allowed {}'.format(MODES))
+
+		self.mode=mode
 		self.index=None
 		self.tarfilePath=tarfilepath
 
-		if self.__findIndexPos()==-1:
-				self.__createIndex()
-		else:
-				self.__loadIndex()
+		if self.mode=='r':
+			self.tarfile=open(tarfilepath)
+		elif self.mode=='w':
+			self.tarfile=open(tarfilepath,'a+')
+		elif self.mode=='wo':
+			if tarfilepath: 
+				if os.path.exists(self.tarfilePath):
+					raise Exception('wo mode requires a new file, and {} already exists'.format(self.tarfilePath))
+				self.tarfile=open(tarfilepath,'a+')
+			else: self.tarfile=None
 
-		self.tarfile=tarfile.TarFile(tarfilepath,'r')
+		if self.mode=='r':
+			if self.__findIndexPos()==-1:
+					self.__createIndex()
+			else:
+					self.__loadIndex()
+		if self.mode=='w' and not new:
+			self.__removeCap()
+
+			if self.__findIndexPos()==-1:
+					self.__createIndex()
+			else:
+					self.__loadIndex()
+					self.deleteIndex()
+
+		if self.mode in ['w','wo'] and new:
+			self.index=Index(names=[],positions=[],dirs=[],sizes=[])
+			self.updateTar("./",data='',entryType=DIRTYPE)
 
 	def __findIndexPos(self):
-		fp=open(self.tarfilePath)
-		fp.seek(-4096,2)
-		info=fp.read()
-		fp.close()
+		assert self.tarfile
+
+		self.tarfile.seek(-512,2)
+		info=self.tarfile.read()
 
 		if not TarFileIdx.MAGICNUMBER2 in info: 
 			return -1
@@ -232,6 +390,7 @@ class TarFileIdx:
 		return safe_load(info[lastmn-8:lastmn])+len(TarFileIdx.MAGICNUMBER1)+(len(info)-lastmn)+8
 
 	def iterLocalFiles(self,directory="./",delete=True,regex=None):
+		assert self.tarfile
 		if regex: regex=re.compile(regex)
 		for ti in self.index:
 			if regex and not regex.findall(ti.name): continue
@@ -243,22 +402,27 @@ class TarFileIdx:
 		return len(self.index)
 
 	def iterFiles(self,regex=None):
+		assert self.tarfile
 		if regex: regex=re.compile(regex)
 		for ti in self.index:
 			if regex and not regex.findall(ti.name): continue
 			yield self.getFile(ti)
 
 	def getFile(self,ti):
+		assert self.tarfile
 		if type(ti)==str:
 			ti=self.index[ti]
 
-		return self.tarfile.extractfile(ti)
+		name,size,pos=ti
+
+		return TarFile(self.tarfile,pos,size,name) 
 
 	def getLocalFile(self,ti,directory='./',createparents=True):
+		assert self.tarfile
 		if type(ti)==str:
 			ti=self.index[ti]
 
-		parents,fil=os.path.split(ti.name)
+		parents,fil=os.path.split(ti[0])
 
 		if createparents:
 			try:os.makedirs(os.path.join(directory,parents))
@@ -291,13 +455,12 @@ class TarFileIdx:
 	__getitem__=getMember
 
 	def __loadIndex(self):
+		assert self.tarfile
 		idxpos=self.__findIndexPos()
-		fp=open(self.tarfilePath)
-		fp.seek(-idxpos,2)
-		data=fp.read()
-		fp.close()
+		self.tarfile.seek(-idxpos,2)
+		data=self.tarfile.read()
 
-		sys.stdout.write('Loading index {0:.1f}Mb gziped... '.format(float(len(data))/(1024*1024)))
+		sys.stderr.write('Loading index {0:.1f}Mb gziped... '.format(float(len(data))/(1024*1024)))
 
 		assert data[:len(TarFileIdx.MAGICNUMBER1)]==TarFileIdx.MAGICNUMBER1
 
@@ -307,21 +470,19 @@ class TarFileIdx:
 		data=gzf.read()
 		self.index=Index(data)
 
-		sys.stdout.write('Done!\n')
+		sys.stderr.write('Done!\n')
 
 	def __createIndex(self):
+		fils,dirs=indexFromTar(self.tarfilePath)
 
-		d=sorted(indexFromTar(self.tarfilePath))
+		self.index=Index(positions=[i[1] for i in fils],sizes=[i[2] for i in fils],names=[i[0] for i in fils],dirs=dirs)
 
+		sys.stderr.write('DONE!\n')
 
-		totitems=len(d)
-		np=0
-		namepositions=[]
-		for i,_,_ in d:
-			namepositions.append(np)
-			np+=len(i)+1
+	def __storeIndex(self):
+		totitems=len(self.index.names)
 
-		d2=safe_dump(len(d))+struct.pack('Q'*totitems,*[i[1] for i in d])+struct.pack('Q'*totitems,*[i[2] for i in d])+struct.pack('Q'*totitems,*namepositions)+'\n'.join([i[0] for i in d])
+		d2=safe_dump(totitems)+struct.pack('Q'*totitems,*self.index.positions)+struct.pack('Q'*totitems,*self.index.sizes)+'\n'.join(self.index.names)+'\n'+'\n'.join(self.index.dirs)
 		
 		z=StringIO(d2)
 
@@ -333,37 +494,101 @@ class TarFileIdx:
 		gzinfo=gzbuff.read()
 
 		idx=TarFileIdx.MAGICNUMBER1+gzinfo+safe_dump(len(gzinfo))+TarFileIdx.MAGICNUMBER2
-		fname=".tarFilIdx-{0}".format(random.randint(1000,9999))
+		fname="./tarFilIdx-{0}".format(random.randint(1000,9999))
 
-		try:
-			updateTar(self.tarfilePath,fname,idx)
-		except:
-			sys.stderr.write('WARNING: Could not write the index into the tar file!\n')
-
-		self.index=Index(positions=[i[1] for i in d],sizes=[i[2] for i in d],names=[i[0] for i in d])
-
-
-		sys.stderr.write('DONE!\n')
+		self.updateTar(fname,idx)
 
 	def deleteIndex(self):
-		a=open(self.tarfilePath,'a+')
+		assert self.mode=='w'
 		bl=1
 		
 		while True:
-			a.seek(-bl*512,2)
-			d=a.read(512)
+			self.tarfile.seek(-bl*512,2)
+			d=self.tarfile.read(512)
 			if d[257:262]=='ustar':
 				break
 			bl+=1
 		
-		if d.startswith('.tarFilIdx-'):
+		if d.startswith('./tarFilIdx-'):
 			pos=bl*512
-			sz=os.fstat(a.fileno()).st_size
-			a.truncate(sz-pos)
-			a.write('\x00'*1024)
-		a.close()
+			sz=os.fstat(self.tarfile.fileno()).st_size
+			self.tarfile.truncate(sz-pos)
 
+	def updateTar(self,path,data,entryType='0',mode=511,uid=1000,gid=1000,mtime=int(time.time())):
+		assert self.mode!='r'
+
+		fname=path[:99]
+		fname+='\x00'*(100-len(fname))
+
+		datasize="{0:0>11}".format(oct(len(data)))[-11:]
+		mode="{0:0>7}".format(oct(mode))[-7:]
+		uid="{0:0>7}".format(oct(uid))[-7:]
+		gid="{0:0>7}".format(oct(gid))[-7:]
+		mtime="{0:0>11}".format(oct(mtime))[-11:]
+
+
+
+		part1=("{0}\x00{1}\x00{2}\x00"+datasize+"\x00{3}\x00").format(mode,uid,gid,mtime)
+
+		part2='{}\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00ustar  \x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x000000000\x000000000\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'.format(entryType)
+
+		cksum=oct(sum(struct.unpack('B'*504,fname+part1+part2))+32*8)
+		cksum="{0: >7}".format(cksum)[-7:]+'\x00'
+
+		header=fname+part1+cksum+part2
+
+		TARACCESS.acquire()
+		self.writeOutput(header)
+		if data:
+			self.writeOutput(data)
+			self.writeOutput('\x00'*(512-(len(data)%512)))
+		TARACCESS.release()
+
+	def __removeCap(self):
+		endb=1
+
+		while True:
+			self.tarfile.seek(-endb*512,2)
+			bl=self.tarfile.read(512)
+			if bl[156] in '\x0001234567xg' and bl[257:262]=='ustar':
+				sz=int(bl[124:135],8)
+				if sz%512: sz=sz+512-(sz%512)
+				updatepos=(endb-sz/512-1)*512
+				break
+			endb+=1
+
+		self.tarfile.seek(-updatepos,2)
+		if set(self.tarfile.read())!=set('\00'):
+			raise Exception
+
+		self.tarfile.truncate(os.fstat(self.tarfile.fileno()).st_size-updatepos)
+
+	
+	def __closeTar(self):
+		TARACCESS.acquire()
+		if self.mode in ['w','wo']:
+			self.__storeIndex()
+			print 'aaa'
+			self.writeOutput('\x00'*1024)
+		TARACCESS.release()
+
+	def close(self):
+		if self.mode in ['w','wo']:
+			self.__closeTar()
+		self.tarfile.close()
+
+	def writeOutput(self,data):
+		assert self.mode in ['w','wo']
+		if self.tarfile:
+			self.tarfile.write(data)
+			self.tarfile.flush()
+		if self.mode=='wo':
+			sys.stdout.write(data)
+			sys.stdout.flush()
 
 if  __name__=='__main__':
-	a=TarFileIdx(sys.argv[1])
-	print len(a),'files indexed'
+	a=TarFileIdx('w',sys.argv[1])
+	sys.stderr.write('{} {}\n'.format(len(a),'files indexed'))
+	a.close()
+
+
